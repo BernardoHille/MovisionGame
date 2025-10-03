@@ -1,76 +1,86 @@
-/*
- * 👋 Hello! This is an ml5.js example made and shared with ❤️.
- * Learn more about the ml5.js project: https://ml5js.org/
- * ml5.js license and Code of Conduct: https://github.com/ml5js/ml5-next-gen/blob/main/LICENSE.md
- *
- * This example demonstrates drawing skeletons on poses for the MoveNet model.
- */
-
-let video;
-let bodyPose;
-let poses = [];
-let connections;
-
-function preload() {
-  // Load the bodyPose model
-  bodyPose = ml5.bodyPose();
-  
-   // Create the video and hide it
-  video = createCapture(VIDEO, false);
-  video.hide();
-}
+// p5.js + ml5.js (PoseNet) – compatível com iPhone
+let video, poseNet, poses = [];
+let started = false, startBtn;
 
 function setup() {
-  // q5.js gets HD resolution from the webcam
-  // by default, so make the canvas match the
-  // capture size
-  createCanvas(video.width, video.height);
-  displayMode(MAXED);
+  pixelDensity(1); // iOS pode ficar instável com densidade > 1
+  createCanvas(windowWidth, windowHeight);
 
-  // Start detecting poses in the webcam video
-  bodyPose.detectStart(video, gotPoses);
-  // Get the skeleton connection information
-  connections = bodyPose.getSkeleton();
+  // Botão para garantir gesto do usuário antes de abrir a câmera
+  startBtn = createButton('Ativar câmera');
+  startBtn.style('padding', '12px 18px');
+  startBtn.style('font-size', '16px');
+  startBtn.mousePressed(startCamera);
+}
+
+function startCamera() {
+  if (started) return;
+  started = true;
+  startBtn.remove();
+
+  // Pedir câmera com preferências (troque para 'environment' se quiser traseira)
+  const constraints = {
+    audio: false,
+    video: { facingMode: 'user', width: 360, height: 270 }
+  };
+
+  video = createCapture(constraints, () => {
+    // atributos exigidos no iOS
+    video.elt.setAttribute('playsinline', ''); // não entrar em fullscreen
+    video.elt.setAttribute('autoplay', '');    // autoplay permitido
+    video.elt.muted = true;                    // autoplay só rola mutado no iOS
+    video.size(360, 270);
+    video.hide();
+  });
+
+  // Só inicializa o PoseNet quando o vídeo puder tocar
+  const initModel = () => {
+    poseNet = ml5.poseNet(video, { detectionType: 'single' }, () => {
+      // modelo carregado
+      // opcional: console.log('PoseNet pronto');
+    });
+    poseNet.on('pose', (results) => (poses = results));
+  };
+
+  if (video && video.elt) {
+    if (video.elt.readyState >= 2) {
+      initModel();
+    } else {
+      video.elt.addEventListener('canplay', initModel, { once: true });
+    }
+  }
 }
 
 function draw() {
-  // Draw the webcam video
-  image(video, 0, 0, width, height);
+  background(0);
+  if (video) {
+    // Preenche a tela mantendo proporção
+    const aspect = video.width / video.height;
+    let w = width, h = w / aspect;
+    if (h < height) { h = height; w = h * aspect; }
+    image(video, (width - w) / 2, (height - h) / 2, w, h);
 
-  // Draw the skeleton connections
-  for (let i = 0; i < poses.length; i++) {
-    let pose = poses[i];
-    for (let j = 0; j < connections.length; j++) {
-      let pointAIndex = connections[j][0];
-      let pointBIndex = connections[j][1];
-      let pointA = pose.keypoints[pointAIndex];
-      let pointB = pose.keypoints[pointBIndex];
-      // Only draw a line if both points are confident enough
-      if (pointA.confidence > 0.1 && pointB.confidence > 0.1) {
-        stroke(255, 0, 0);
-        strokeWeight(2);
-        line(pointA.x, pointA.y, pointB.x, pointB.y);
+    // Desenha pontos/articulações
+    noStroke();
+    fill(0, 255, 0);
+    if (poses.length > 0) {
+      const kp = poses[0].pose.keypoints;
+      for (const k of kp) {
+        if (k.score > 0.3) {
+          const sx = map(k.position.x, 0, video.width, (width - w) / 2, (width + w) / 2);
+          const sy = map(k.position.y, 0, video.height, (height - h) / 2, (height + h) / 2);
+          circle(sx, sy, 8);
+        }
       }
     }
-  }
-
-  // Draw all the tracked landmark points
-  for (let i = 0; i < poses.length; i++) {
-    let pose = poses[i];
-    for (let j = 0; j < pose.keypoints.length; j++) {
-      let keypoint = pose.keypoints[j];
-      // Only draw a circle if the keypoint's confidence is bigger than 0.1
-      if (keypoint.confidence > 0.1) {
-        fill(0, 255, 0);
-        noStroke();
-        circle(keypoint.x, keypoint.y, 10);
-      }
-    }
+  } else {
+    // instrução inicial
+    push();
+    fill(255);
+    textAlign(CENTER, CENTER);
+    text('Toque em "Ativar câmera" para iniciar', width / 2, height / 2);
+    pop();
   }
 }
 
-// Callback function for when bodyPose outputs data
-function gotPoses(results) {
-  // Save the output to the poses variable
-  poses = results;
-}
+function windowResized() { resizeCanvas(windowWidth, windowHeight); }
